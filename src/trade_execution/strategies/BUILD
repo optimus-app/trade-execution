@@ -1,12 +1,8 @@
 python_sources(
     dependencies=[
-        "//:reqs#uvicorn",
-        "//:reqs#fastapi",
-        "//:reqs#futu-api", 
-        "//:reqs#pydantic",
         "//:reqs#pandas",
         "//:reqs#numpy",
-        "src/trade_execution/api",
+        "//:reqs#futu-api",
         "src/trade_execution/models",
         "src/trade_execution/strategies",
     ],
