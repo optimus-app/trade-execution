@@ -1,9 +1,8 @@
 python_sources(
     dependencies=[
-        "//:reqs#fastapi",
         "//:reqs#pydantic",
-        "//:reqs#asyncio", 
+        "//:reqs#futu-api",
+        "//:reqs#asyncio",
         "src/trade_execution/models",
-        "src/trade_execution/strategies",
     ],
 )

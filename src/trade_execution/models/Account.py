@@ -84,8 +84,19 @@ class Account():
         """
         ret, data = self.info.trade_context.history_deal_list_query(
             start=start_date.strftime("%Y-%m-%d"),
-            end=end_date.strftime("%Y-%m-%d")
+            end=end_date.strftime("%Y-%m-%d"),
+            trd_env=self.info.TRADING_ENV
         )
         if ret != RET_OK:
             raise Exception(f"Failed to get transaction history: {data}")
+        return data.to_dict('records')
+    
+    def getHistoricalOrders(self, start_date: datetime, end_date: datetime) -> List[Dict]:
+        ret, data = self.info.trade_context.history_order_list_query(
+            start=start_date.strftime("%Y-%m-%d"),
+            end=end_date.strftime("%Y-%m-%d"),
+            trd_env=self.info.TRADING_ENV
+        )
+        if ret != RET_OK:
+            raise Exception(f"Failed to get historical orders: {data}")
         return data.to_dict('records')

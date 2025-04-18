@@ -1,4 +1,4 @@
-from fastapi import APIRouter, FastAPI, Depends, HTTPException, Query, Path
+from fastapi import APIRouter, FastAPI, Depends, HTTPException, Query, Path, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
@@ -8,6 +8,10 @@ from trade_execution.models.Order import Order, OrderSide, OrderType
 from trade_execution.models.Account import Account
 from trade_execution.models.OrderBook import OrderBook
 from trade_execution.models.Trade import Trade
+from trade_execution.models.ConnectionManager import ConnectionManager
+from trade_execution.handlers.order_status_handler import OrderStatusHandler
+from trade_execution.handlers.order_handler import OrderHandler
+from trade_execution.models.APIConnectInfo import APIConnectInfo
 
 from trade_execution.strategies.moving_average import MovingAverageStrategy
 from trade_execution.strategies.mean_reversion import MeanReversionStrategy
@@ -15,6 +19,7 @@ import logging
 # from trade_execution.strategies.momentum import MomentumStrategy
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger('trade_execution.api.server')
+import asyncio
 
 # Pydantic models for requests and responses
 class OrderRequest(BaseModel):
@@ -56,6 +61,23 @@ STRATEGY_MAP = {
     # "momentum": MomentumStrategy()
 }
 
+@router.websocket("/ws/orders")
+async def websocket_order_updates(websocket: WebSocket):
+    """WebSocket endpoint for real-time order status updates"""
+    connection_manager = ConnectionManager.getInstance()
+    await connection_manager.connect(websocket)
+    try:
+        while True:
+            # Keep the connection alive with ping/pong
+            data = await websocket.receive_text()
+            if data == "ping":
+                await websocket.send_text("pong")
+    except WebSocketDisconnect:
+        await connection_manager.disconnect(websocket)
+    except Exception as e:
+        logger.error(f"WebSocket error: {str(e)}")
+        await connection_manager.disconnect(websocket)
+
 # Trade endpoints
 @router.post("/trade/order", response_model=OrderResponse)
 async def place_order(order_request: OrderRequest):
@@ -71,6 +93,15 @@ async def place_order(order_request: OrderRequest):
         )
         
         order_id = order.submit()
+
+        await OrderStatusHandler.process_order_update({
+            "order_id": order_id,
+            "code": order.code,
+            "order_status": "SUBMITTED",
+            "qty": order.qty,
+            "price": order.price,
+            "trd_side": order.side,
+        })
         
         return OrderResponse(
             order_id=order_id,
@@ -82,6 +113,8 @@ async def place_order(order_request: OrderRequest):
             status="SUBMITTED",
             create_time=datetime.now().isoformat()
         )
+
+        
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -90,6 +123,7 @@ async def cancel_order(order_id: str = Path(..., description="The ID of the orde
     """Cancel an existing order"""
     try:
         order = Order.getOrderById(order_id)
+        # TODO: Unlock trade first
         result = order.cancel()
         return {"message": "Order cancelled successfully", "order_id": order_id}
     except Exception as e:
@@ -99,6 +133,7 @@ async def cancel_order(order_id: str = Path(..., description="The ID of the orde
 async def get_order(order_id: str = Path(..., description="The ID of the order to retrieve")):
     """Get order details by ID"""
     try:
+        logger.debug(f"order_id: {order_id}")
         order = Order.getOrderById(order_id)
         return OrderResponse(
             order_id=order.order_id,
@@ -117,6 +152,7 @@ async def get_order(order_id: str = Path(..., description="The ID of the order t
 # TODO: Check Orders Push Callback
 # TODO: Get open orders
 # TODO: Get trading account lists
+# TODO: Test US market TrdMarket.US if available in a simulated environment
 
 # Account endpoints
 @router.get("/account/balance")
@@ -148,6 +184,15 @@ async def get_transaction_history(request: HistoryRequest):
         account = Account()
         history = account.getTransactionHistory(request.start_date, request.end_date)
         return {"transactions": history[:request.limit]}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/account/historicalOrders")
+async def get_historical_orders(request: HistoryRequest):
+    try:
+        account = Account()
+        history = account.getHistoricalOrders(request.start_date, request.end_date)
+        return {"orders": history[:request.limit]}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -201,6 +246,20 @@ def create_app():
     )
     
     app.include_router(router, prefix="/api/v1")
+
+    @app.on_event("startup")
+    async def startup_event():
+        logger.info("Starting up Trading Execution API...")
+        api_info = APIConnectInfo.getInstance()
+        
+        # Get the current event loop
+        loop = asyncio.get_running_loop()
+        
+        # Register the OrderHandler with the trade context
+        order_status_handler = OrderStatusHandler()
+        order_handler = OrderHandler(order_status_handler, loop=loop)
+        api_info.trade_context.set_handler(order_handler)
+        logger.info("Order status handlers registered with Futu API")
     
     @app.get("/")
     async def root():

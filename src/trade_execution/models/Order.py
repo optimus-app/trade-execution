@@ -180,7 +180,7 @@ class Order:
             Exception: If order retrieval fails
         """
         info = APIConnectInfo.getInstance()
-        ret, data = info.trade_context.order_list_query(order_id=order_id)
+        ret, data = info.trade_context.order_list_query(order_id=order_id, trd_env=info.TRADING_ENV)
         
         if ret != RET_OK:
             raise Exception(f"Failed to get order: {data}")
@@ -195,9 +195,8 @@ class Order:
             side=OrderSide.BUY if order_data['trd_side'] == TrdSide.BUY else OrderSide.SELL,
             qty=order_data['qty'],
             price=order_data['price'],
-            order_type=OrderType.LIMIT if order_data['order_type'] == OrderType.NORMAL else OrderType.MARKET,
+            order_type=OrderType.LIMIT if order_data['order_type'] == OrderType.LIMIT else OrderType.MARKET,
             order_id=order_id,
             status=OrderStatus(order_data['order_status']),
             create_time=order_data['create_time'],
-            update_time=order_data['update_time']
         )

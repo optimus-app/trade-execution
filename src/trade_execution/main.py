@@ -1,6 +1,7 @@
 import uvicorn
 from trade_execution.api.server import create_app
 from trade_execution.models.APIConnectInfo import APIConnectInfo
+from trade_execution.models.ConnectionManager import ConnectionManager
 
 # Configure Futu OpenD connection
 APIConnectInfo.getInstance(
@@ -8,6 +9,7 @@ APIConnectInfo.getInstance(
     FUTU_OPEND_PORT=11111            # Default port, adjust if needed
 )
 
+ConnectionManager.getInstance()
 app = create_app()
 
 if __name__ == "__main__":
