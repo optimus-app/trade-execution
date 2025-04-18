@@ -120,6 +120,7 @@ class Order:
         
         ret, data = self.info.trade_context.modify_order(
             modify_order_op=ModifyOrderOp.CANCEL,
+            trd_env=TrdEnv.SIMULATE,
             order_id=self.order_id,
             qty=self.qty,
             price=self.price or 0.0
