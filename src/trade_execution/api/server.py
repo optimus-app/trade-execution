@@ -16,12 +16,17 @@ from trade_execution.models.APIConnectInfo import APIConnectInfo
 from trade_execution.strategies.moving_average import MovingAverageStrategy
 from trade_execution.strategies.mean_reversion import MeanReversionStrategy
 import logging
-# from trade_execution.strategies.momentum import MomentumStrategy
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger('trade_execution.api.server')
 import asyncio
 
-# Pydantic models for requests and responses
+class BacktestRequest(BaseModel):
+    symbol: str
+    strategy_id: str
+    start_date: datetime = Field(default_factory=lambda: datetime.now() - timedelta(days=365))
+    end_date: datetime = Field(default_factory=lambda: datetime.now())
+    initial_capital: float = 10000.0
+    parameters: Dict[str, Any] = {}
 class OrderRequest(BaseModel):
     code: str
     side: str
@@ -235,6 +240,62 @@ async def get_order_book(code: str = Path(..., description="The security code"))
         data = orderbook.getOrderBook(code)
         return data
     except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/backtest")
+async def run_backtest(request: BacktestRequest):
+    """Run a backtest with the specified strategy and parameters"""
+    try:
+        from trade_execution.services.backtest_service import BacktestService
+        import math
+        import numpy as np
+        
+        # Map the strategy_id from the request to an actual strategy
+        strategy_mapping = {
+            "moving_average": "sma_crossover",
+            "mean_reversion": "mean_reversion"
+            # Add more strategy mappings as they become available
+        }
+        
+        if request.strategy_id not in strategy_mapping:
+            raise HTTPException(
+                status_code=404, 
+                detail=f"Strategy {request.strategy_id} not found"
+            )
+            
+        # Run the backtest
+        result = BacktestService.run_backtest(
+            strategy_id=strategy_mapping[request.strategy_id],
+            symbol=request.symbol,
+            start_date=request.start_date,
+            end_date=request.end_date,
+            initial_capital=request.initial_capital,
+            parameters=request.parameters
+        )
+        
+        # Sanitize the result to handle special float values before JSON serialization
+        def sanitize_json(obj):
+            if isinstance(obj, dict):
+                return {k: sanitize_json(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [sanitize_json(item) for item in obj]
+            elif isinstance(obj, (float, np.float64, np.float32)):
+                if math.isnan(obj) or math.isinf(obj):
+                    return None
+                return float(obj)
+            elif isinstance(obj, np.integer):
+                return int(obj)
+            return obj
+        
+        sanitized_result = sanitize_json(result)
+        return sanitized_result
+    
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except NotImplementedError as e:
+        raise HTTPException(status_code=501, detail=str(e))
+    except Exception as e:
+        logger.error(f"Backtest error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # Main FastAPI application

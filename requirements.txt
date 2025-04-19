@@ -12,3 +12,4 @@ pydantic
 numpy
 pandas
 asyncio
+yfinance
