@@ -3,4 +3,7 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .pants.d/
+.DS_Store
+repomix-output.xml
+
 

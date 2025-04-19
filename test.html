@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Order Status WebSocket Test</title>
+    <style>
+        #log {
+            height: 300px;
+            overflow-y: scroll;
+            border: 1px solid #ccc;
+            padding: 10px;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Order Status Updates</h1>
+    <div id="log"></div>
+    <button onclick="connectWebSocket()">Connect</button>
+    <button onclick="disconnectWebSocket()">Disconnect</button>
+
+    <script>
+        let ws;
+        let heartbeatInterval;
+
+        function connectWebSocket() {
+            ws = new WebSocket('ws://localhost:8000/api/v1/ws/orders');
+            
+            ws.onopen = function(event) {
+                log('Connected to order status WebSocket');
+                
+                // Setup heartbeat
+                heartbeatInterval = setInterval(() => {
+                    if (ws.readyState === WebSocket.OPEN) {
+                        ws.send('ping');
+                    }
+                }, 30000);
+            };
+            
+            ws.onmessage = function(event) {
+                if (event.data === 'pong') {
+                    log('Heartbeat received');
+                    return;
+                }
+                
+                const data = JSON.parse(event.data);
+                log(`Order Update: ${JSON.stringify(data, null, 2)}`);
+            };
+            
+            ws.onclose = function(event) {
+                log('Disconnected from WebSocket');
+                clearInterval(heartbeatInterval);
+            };
+            
+            ws.onerror = function(error) {
+                log(`WebSocket error: ${error}`);
+            };
+        }
+        
+        function disconnectWebSocket() {
+            if (ws) {
+                ws.close();
+                clearInterval(heartbeatInterval);
+            }
+        }
+        
+        function log(message) {
+            const logDiv = document.getElementById('log');
+            const entry = document.createElement('div');
+            const timestamp = new Date().toISOString();
+            entry.textContent = `[${timestamp}] ${message}`;
+            logDiv.appendChild(entry);
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+    </script>
+</body>
+</html>
