@@ -13,4 +13,4 @@ ConnectionManager.getInstance()
 app = create_app()
 
 if __name__ == "__main__":
-    uvicorn.run("trade_execution.main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("trade_execution.main:app", host="0.0.0.0", port=9000, reload=True)

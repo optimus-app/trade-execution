@@ -1,3 +1,4 @@
+from futu import SubType, RET_OK
 from fastapi import APIRouter, FastAPI, Depends, HTTPException, Query, Path, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 from typing import List, Dict, Any, Optional
@@ -15,6 +16,8 @@ from trade_execution.models.APIConnectInfo import APIConnectInfo
 
 from trade_execution.strategies.moving_average import MovingAverageStrategy
 from trade_execution.strategies.mean_reversion import MeanReversionStrategy
+from trade_execution.handlers.order_book_handler import OrderBookHandler
+
 import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger('trade_execution.api.server')
@@ -65,6 +68,23 @@ STRATEGY_MAP = {
     "mean_reversion": MeanReversionStrategy(),
     # "momentum": MomentumStrategy()
 }
+
+@router.websocket("/ws/orderbook")
+async def websocket_orderbook_updates(websocket: WebSocket):
+    """WebSocket endpoint for real-time order book updates"""
+    connection_manager = ConnectionManager.getInstance()
+    await connection_manager.connect(websocket)
+    try:
+        while True:
+            # Keep the connection alive with ping/pong
+            data = await websocket.receive_text()
+            if data == "ping":
+                await websocket.send_text("pong")
+    except WebSocketDisconnect:
+        await connection_manager.disconnect(websocket)
+    except Exception as e:
+        logger.error(f"WebSocket error: {str(e)}")
+        await connection_manager.disconnect(websocket)
 
 @router.websocket("/ws/orders")
 async def websocket_order_updates(websocket: WebSocket):
@@ -172,12 +192,26 @@ async def get_account_balance():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/account/positions")
-async def get_account_positions():
-    """Get current positions in the account"""
+class MarketPositionRequest(BaseModel):
+    acc_id: Optional[int] = None
+    trd_mkt: Optional[str] = None  # HK, US, CN, etc.
+    pl_ratio_min: Optional[float] = None
+    pl_ratio_max: Optional[float] = None
+    refresh_cache: bool = False
+
+@router.post("/market/positions")
+async def get_market_positions(request: MarketPositionRequest):
+    """Get current positions in simulated market environment"""
     try:
         account = Account()
-        positions = account.getPositions()
+        # Force simulation environment
+        positions = account.getPositions(
+            trd_env="SIMULATE",
+            trd_mkt=request.trd_mkt,
+            pl_ratio_min=request.pl_ratio_min,
+            pl_ratio_max=request.pl_ratio_max,
+            refresh_cache=request.refresh_cache
+        )
         return positions
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -321,6 +355,21 @@ def create_app():
         order_handler = OrderHandler(order_status_handler, loop=loop)
         api_info.trade_context.set_handler(order_handler)
         logger.info("Order status handlers registered with Futu API")
+        
+        # Subscribe to HK.00700 order book
+        try:
+            # Create order book handler
+            order_book_handler = OrderBookHandler(loop=loop)
+            api_info.quote_context.set_handler(order_book_handler)
+            
+            # Subscribe to order book for HK.00700
+            ret, data = api_info.quote_context.subscribe(['HK.00700'], [SubType.ORDER_BOOK])
+            if ret != RET_OK:
+                logger.error(f"Failed to subscribe to HK.00700 order book: {data}")
+            else:
+                logger.info("Successfully subscribed to HK.00700 order book")
+        except Exception as e:
+            logger.error(f"Error setting up order book subscription: {str(e)}")
     
     @app.get("/")
     async def root():
